@@ -1,149 +1,274 @@
-# StayEase AI Agent
+# 🏨 StayEase AI Agent
 
-An AI-powered hotel booking assistant for Bangladesh built with **FastAPI**, **LangGraph**, **Groq (LLaMA 3)**, and **Supabase (PostgreSQL)**.
+StayEase AI Agent is an LLM-powered conversational booking system built with **FastAPI, LangGraph, Groq (LLM), and PostgreSQL**.
+
+This system enables users to:
+
+* Search properties using natural language
+* View listing details
+* Create bookings through conversational interaction
 
 ---
 
-## Architecture
+# 🎯 Objective
+
+This project demonstrates how to design a **stateful AI agent system** that separates:
+
+* 🧠 Reasoning → LLM (Groq - LLaMA 3)
+* 🔀 Orchestration → LangGraph
+* ⚙️ Execution → Tools (PostgreSQL queries)
+
+---
+
+# 🏗️ System Architecture
+
+```mermaid
+graph TD
+    A[User] -->|Message| B[FastAPI]
+    B --> C[LangGraph Agent]
+    C --> D[LLM]
+    C --> E[Tools Layer]
+    E --> F[PostgreSQL]
+    C --> B
+    B --> A
+```
+
+---
+
+# 🔄 Agent Workflow
+
+```mermaid
+graph TD
+    A[User Message] --> B[detect_intent]
+
+    B -->|search| C[search_node]
+    B -->|details| D[details_node]
+    B -->|book| E[booking_node]
+    B -->|fallback| F[human_node]
+
+    C --> G[response_node]
+    D --> G
+    E --> G
+    F --> G
+
+    G --> H[Final Response]
+```
+
+---
+
+# 🧠 State Management
+
+The agent uses a **shared state object** across all nodes:
+
+```python
+class AgentState(TypedDict):
+    user_message: str
+    intent: Optional[str]
+    extracted: Optional[dict]
+    tool_result: Optional[Any]
+    response: Optional[Any]
+```
+
+### Why State?
+
+* Maintains conversation context
+* Stores structured data (intent, extracted fields)
+* Enables multi-step workflows
+
+---
+
+# Core Components
+
+## 1. Nodes (Execution Units)
+
+| Node          | Responsibility                                    |
+| ------------- | ------------------------------------------------- |
+| detect_intent | LLM-based intent classification + data extraction |
+| search_node   | Query listings from DB                            |
+| details_node  | Fetch specific listing info                       |
+| booking_node  | Insert booking into DB                            |
+| response_node | Generate final response                           |
+
+---
+
+## 2. Tools (Backend Logic)
+
+Tools encapsulate **deterministic operations**:
+
+* `search_available_properties` → SQL SELECT
+* `get_listing_details` → SQL SELECT
+* `create_booking` → SQL INSERT
+
+👉 This prevents LLM hallucination and ensures reliability.
+
+---
+
+## 3. Graph (Decision Engine)
 
 ```mermaid
 flowchart TD
-    User([User]) -->|POST /api/chat/{id}/message| API[FastAPI]
-    API --> Graph[LangGraph Agent]
+    A[detect_intent] --> B{Intent}
 
-    Graph --> DetectIntent[detect_intent node\nGroq LLaMA 3]
+    B -->|search| C[search_node]
+    B -->|details| D[details_node]
+    B -->|book| E[booking_node]
+    B -->|other| F[human_node]
 
-    DetectIntent -->|search| SearchNode[search_node]
-    DetectIntent -->|details| DetailsNode[details_node]
-    DetectIntent -->|book| BookNode[booking_node]
-    DetectIntent -->|human| HumanNode[human_node]
-
-    SearchNode --> DB[(Supabase\nPostgreSQL)]
-    DetailsNode --> DB
-    BookNode --> DB
-
-    SearchNode --> ResponseNode[response_node\nGroq LLaMA 3]
-    DetailsNode --> ResponseNode
-    BookNode --> ResponseNode
-    HumanNode --> ResponseNode
-
-    ResponseNode --> API
-    API -->|Save to conversations| DB
-    API -->|JSON response| User
+    C --> G[response_node]
+    D --> G
+    E --> G
+    F --> G
 ```
 
 ---
 
-## Features
+# Database Design
 
-- Natural language hotel search by location, guests, and budget (BDT)
-- Listing detail lookup by ID
-- Booking creation with confirmation
-- Conversation history stored in database
-- Human handoff for unsupported requests
+```mermaid
+erDiagram
+    LISTINGS {
+        int id PK
+        string name
+        string location
+        int price_per_night
+        int max_guests
+    }
+
+    BOOKINGS {
+        int id PK
+        int listing_id FK
+        string guest_name
+        int guests
+        date check_in
+        date check_out
+        string status
+    }
+
+    CONVERSATIONS {
+        int id PK
+        text user_message
+        text response
+        timestamp created_at
+    }
+
+    LISTINGS ||--o{ BOOKINGS : has
+```
+---
+
+# Key Design Decisions
+
+### 1. Separation of Concerns
+
+* LLM → reasoning
+* Tools → execution
+* Graph → control flow
 
 ---
 
-## Project Structure
+### 2. Validation Before Execution
 
-```
-StayEase/
-├── main.py              # FastAPI app & routes
-├── migrate.py           # One-time DB schema runner
-├── agent/
-│   ├── db.py            # PostgreSQL connection (psycopg)
-│   ├── graph.py         # LangGraph state machine
-│   ├── nodes.py         # Agent node functions
-│   ├── schema.sql       # DB schema & seed data
-│   ├── state.py         # AgentState TypedDict
-│   └── tools.py         # LangChain tools (search, details, book)
-└── .env                 # Environment variables
-```
+Booking is only executed when all required fields exist:
+
+* listing_id
+* guests
+* check_in
+* check_out
+
+Otherwise → system asks for clarification.
 
 ---
 
-## Setup
+### 3. Hybrid Intent Detection
 
-### 1. Clone & install dependencies
+* Rule-based → fast detection
+* LLM-based → flexible extraction
+
+---
+
+# Installation
 
 ```bash
-git clone https://github.com/your-username/stayease.git
-cd stayease
+git clone https://github.com/your-repo/stayease-agent.git
+cd stayease-agent
+
 python -m venv venv
-venv\Scripts\activate      # Windows
+venv\Scripts\activate
+
 pip install -r requirements.txt
 ```
 
-### 2. Configure environment variables
+---
 
-Create a `.env` file:
+# Environment Setup
+
+Create `.env`:
 
 ```env
-GROQ_API_KEY=your_groq_api_key
-DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres
+GROQ_API_KEY=your_groq_key
+DATABASE_URL=postgresql://postgres:password@localhost:5432/stayease
 ```
 
-> Get a free Groq API key at [console.groq.com](https://console.groq.com)
-> Get a free Supabase database at [supabase.com](https://supabase.com)
-
-### 3. Apply database schema
-
-Run the SQL in `agent/schema.sql` via Supabase SQL Editor, or:
-
-```bash
-python migrate.py
-```
-
-### 4. Run the server
+---
+# Run Server
 
 ```bash
 uvicorn main:app --reload
 ```
 
-API docs available at **http://127.0.0.1:8000/docs**
-
 ---
 
-## API Endpoints
+# API Usage
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/api/chat/{conversation_id}/message` | Send a message to the AI agent |
-| `GET` | `/api/chat/{conversation_id}/history` | Get conversation history |
+## Send Message
 
-### Example request
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/chat/1/message \
-  -H "Content-Type: application/json" \
-  -d '{"message": "I need a room in Cox'\''s Bazar for 2 guests under 5000 BDT"}'
+```http
+POST /api/chat/{conversation_id}/message
 ```
 
-### Example response
-
+### Example
+#Search message
 ```json
 {
-  "conversation_id": 1,
-  "message": "I need a room in Cox's Bazar for 2 guests under 5000 BDT",
-  "response": "Great news! I found a perfect match for you — Sea View Hotel in Cox's Bazar at 4,500 BDT per night. It accommodates up to 2 guests and includes WiFi, AC, and Breakfast. Would you like to book it?"
+  "message": "I need a room in Cox’s Bazar for 2 nights for 2 guests"
+}
+```
+
+---
+# Details message
+```json
+{
+  "message": "Show me details for listing 1"
+}
+```
+---
+# Booking message
+```json
+{
+  "message": "Book listing 1 for John, 2 guests, check-in 2026-05-01, check-out 2026-05-03"
 }
 ```
 
 ---
 
-## Tech Stack
+# Future Improvements
 
-| Layer | Technology |
-|-------|-----------|
-| API | FastAPI |
-| AI Orchestration | LangGraph |
-| LLM | Groq — LLaMA 3.1 8B Instant |
-| Database | Supabase (PostgreSQL) |
-| DB Driver | psycopg3 |
-| Validation | Pydantic v2 |
+* Multi-turn memory (context-aware booking)
+* Date parsing ("tomorrow", "next week")
+* Multilingual support (Bangla + English)
+* Redis caching
+* LLM fallback (Groq + OpenAI)
 
 ---
 
-## License
+# Key Insight
 
-MIT
+> This system demonstrates how to build a reliable AI agent by separating reasoning from execution, reducing hallucination risk and improving production readiness.
+
+---
+
+# Author
+
+**Limon Chandra Ray**
+Junior AI Engineer
+
+---
