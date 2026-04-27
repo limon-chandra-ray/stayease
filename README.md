@@ -204,8 +204,8 @@ pip install -r requirements.txt
 Create `.env`:
 
 ```env
-GROQ_API_KEY=your_groq_key
-DATABASE_URL=postgresql://postgres:password@localhost:5432/stayease
+GROQ_API_KEY=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
+DATABASE_URL=postgresql://aiagent_q0ve_user:nYzJzl2vi8NLx6dGw9tlEELqbzslmrxl@dpg-d7nl8qqqqhas73fur5p0-a.singapore-postgres.render.com/aiagent_q0ve
 ```
 
 ---
