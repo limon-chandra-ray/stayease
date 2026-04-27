@@ -268,7 +268,7 @@ POST /api/chat/{conversation_id}/message
 
 # Author
 
-**Limon Chandra Ray**
+**Limon Chandra Ray**  
 Junior AI Engineer
 
 ---
