@@ -7,4 +7,4 @@ class AgentState(TypedDict):
     intent: Optional[Literal["search", "details", "book", "human"]]
     extracted: Optional[dict[str, Any]]
     tool_result: Optional[Any]
-    response: Optional[str]
+    response: Optional[Any]

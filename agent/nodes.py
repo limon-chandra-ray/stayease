@@ -1,5 +1,6 @@
 import json
 import re
+from datetime import date
 from langchain_groq import ChatGroq
 from agent.state import AgentState
 from agent.tools import (
@@ -32,6 +33,7 @@ def detect_intent_and_extract(state: AgentState) -> AgentState:
         "intent": "search|details|book|human",
         "location": "string or null",
         "guests": number or null,
+        "nights": number or null,
         "max_price": number or null,
         "listing_id": number or null,
         "guest_name": "string or null",
@@ -99,22 +101,81 @@ def human_node(state: AgentState) -> AgentState:
 
 
 def response_node(state: AgentState) -> AgentState:
+    intent = state.get("intent")
+    tool_result = state.get("tool_result")
+
+    # 🧠 Use LLM to generate message (text only)
     prompt = f"""
-            You are StayEase booking assistant.
+You are StayEase booking assistant.
 
-            Write a short helpful response in natural language.
-            Use BDT pricing when prices exist.
+Write a short helpful response in natural language.
+Use BDT pricing when prices exist.
 
-            User message:
-            {state["user_message"]}
+User message:
+{state["user_message"]}
 
-            Intent:
-            {state["intent"]}
+Intent:
+{intent}
 
-            Tool result:
-            {state["tool_result"]}
-        """
+Tool result:
+{tool_result}
+"""
 
     result = llm.invoke(prompt)
-    state["response"] = result.content
+    message_text = result.content.strip()
+
+    # ✅ Convert to JSON ONLY for search
+    if intent == "search":
+        data = []
+        extracted = state.get("extracted") or {}
+        total_nights = extracted.get("nights") or 1
+
+        if tool_result:
+            for item in tool_result:
+                price = item["price_per_night"]
+                data.append({
+                    "id": item["id"],
+                    "name": item["name"],
+                    "price_per_night": price,
+                    "total_nights": total_nights,
+                    "total_cost_amount": price * total_nights,
+                })
+
+        state["response"] = {
+            "type": "search",
+            "message": message_text,
+            "data": data
+        }
+        return state
+
+    # ✅ DETAILS JSON
+    if intent == "details":
+        state["response"] = {
+            "type": "details",
+            "data": tool_result
+        }
+        return state
+
+    # ✅ BOOKING JSON
+    if intent == "book":
+        booking_data = None
+        if tool_result:
+            booking_data = {
+                k: v.isoformat() if isinstance(v, date) else v
+                for k, v in tool_result.items()
+            }
+        state["response"] = {
+            "type": "booking",
+            "message": message_text,
+            "data": booking_data
+        }
+        return state
+
+    # fallback
+    state["response"] = {
+        "type": "general",
+        "message": message_text,
+        "data": None
+    }
+
     return state

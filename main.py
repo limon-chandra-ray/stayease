@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from agent.graph import graph
 from agent.db import get_connection
+import json
 
 app = FastAPI(title="StayEase AI Agent")
 
@@ -24,12 +25,14 @@ def send_guest_message(conversation_id: int, payload: MessageRequest):
 
         with get_connection() as conn:
             with conn.cursor() as cur:
+                response = result["response"]
+                response_text = json.dumps(response) if isinstance(response, dict) else response
                 cur.execute(
                     """
                     INSERT INTO conversations (user_message, response)
                     VALUES (%s, %s)
                     """,
-                    (payload.message, result["response"]),
+                    (payload.message, response_text),
                 )
                 conn.commit()
 
