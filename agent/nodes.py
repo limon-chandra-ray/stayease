@@ -1,0 +1,120 @@
+import json
+import re
+from langchain_groq import ChatGroq
+from agent.state import AgentState
+from agent.tools import (
+    search_available_properties,
+    get_listing_details,
+    create_booking,
+)
+
+llm = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+llm_json = ChatGroq(model="llama-3.1-8b-instant", temperature=0, model_kwargs={"response_format": {"type": "json_object"}})
+
+
+def detect_intent_and_extract(state: AgentState) -> AgentState:
+    prompt = f"""
+        You are an intent classifier for StayEase.
+
+        Allowed intents:
+        - search
+        - details
+        - book
+        - human
+
+        Return JSON only.
+
+        User message:
+        {state["user_message"]}
+
+        JSON schema:
+        {{
+        "intent": "search|details|book|human",
+        "location": "string or null",
+        "guests": number or null,
+        "max_price": number or null,
+        "listing_id": number or null,
+        "guest_name": "string or null",
+        "check_in": "YYYY-MM-DD or null",
+        "check_out": "YYYY-MM-DD or null"
+        }}
+        """
+
+    result = llm_json.invoke(prompt)
+    # Strip markdown code blocks if present
+    content = result.content.strip()
+    content = re.sub(r"^```(?:json)?\s*", "", content)
+    content = re.sub(r"\s*```$", "", content)
+    data = json.loads(content)
+
+    state["intent"] = data.get("intent", "human")
+    state["extracted"] = data
+    return state
+
+
+def search_node(state: AgentState) -> AgentState:
+    data = state["extracted"] or {}
+
+    result = search_available_properties.invoke({
+        "location": data.get("location") or "",
+        "guests": data.get("guests") or 1,
+        "max_price": data.get("max_price"),
+    })
+
+    state["tool_result"] = result
+    return state
+
+
+def details_node(state: AgentState) -> AgentState:
+    data = state["extracted"] or {}
+
+    result = get_listing_details.invoke({
+        "listing_id": data.get("listing_id")
+    })
+
+    state["tool_result"] = result
+    return state
+
+
+def booking_node(state: AgentState) -> AgentState:
+    data = state["extracted"] or {}
+
+    result = create_booking.invoke({
+        "listing_id": data.get("listing_id"),
+        "guest_name": data.get("guest_name") or "Guest",
+        "guests": data.get("guests") or 1,
+        "check_in": data.get("check_in"),
+        "check_out": data.get("check_out"),
+    })
+
+    state["tool_result"] = result
+    return state
+
+
+def human_node(state: AgentState) -> AgentState:
+    state["tool_result"] = {
+        "message": "This request is outside StayEase supported actions. Please contact a human agent."
+    }
+    return state
+
+
+def response_node(state: AgentState) -> AgentState:
+    prompt = f"""
+            You are StayEase booking assistant.
+
+            Write a short helpful response in natural language.
+            Use BDT pricing when prices exist.
+
+            User message:
+            {state["user_message"]}
+
+            Intent:
+            {state["intent"]}
+
+            Tool result:
+            {state["tool_result"]}
+        """
+
+    result = llm.invoke(prompt)
+    state["response"] = result.content
+    return state
